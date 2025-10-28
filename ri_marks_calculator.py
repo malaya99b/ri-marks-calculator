@@ -2,70 +2,125 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="RI Exam Marks & Rank Calculator", page_icon="📊")
+# -----------------------------
+# Title and Intro
+# -----------------------------
+st.set_page_config(page_title="RI Marks & Rank Calculator", page_icon="📊", layout="centered")
 
 st.title("📊 RI Exam Marks & Rank Calculator")
-st.write("""
-Check your **marks** and **section-wise performance** for the RI Exam.  
-Scoring: +1 for correct, -⅓ for wrong, 0 for unattempted.
-""")
+st.write("Welcome! Please fill in your details and upload your response sheet below to calculate your marks and estimated rank.")
 
-# ----- Generate Sample Data -----
-st.subheader("Demo Mode (Sample Data)")
+# -----------------------------
+# User Details Section
+# -----------------------------
+st.subheader("🧾 Candidate Information")
 
-# Generate 100 random correct answers (A/B/C/D)
-np.random.seed(42)
-sample_key = pd.DataFrame({
-    "QNo": np.arange(1, 101),
-    "CorrectAnswer": np.random.choice(list("ABCD"), 100)
-})
-sample_response = pd.DataFrame({
-    "QNo": np.arange(1, 101),
-    "YourAnswer": np.random.choice(list("ABCD") + [np.nan], 100, p=[0.23,0.23,0.23,0.23,0.08])
-})
+col1, col2 = st.columns(2)
 
-st.success("✅ Sample Answer Key and Response Loaded!")
+with col1:
+    name = st.text_input("Full Name")
+    gender = st.radio("Gender", ["Male", "Female", "Other"])
+with col2:
+    roll_no = st.text_input("Roll Number")
+    medium = st.selectbox("Medium of Examination", ["English", "Odia"])
 
-# ----- Merge & Evaluate -----
-merged = pd.merge(sample_key, sample_response, on="QNo", how="left")
+st.markdown("---")
 
-# Correct, wrong, unattempted
-merged["Correct"] = merged["YourAnswer"] == merged["CorrectAnswer"]
-merged["Wrong"] = (~merged["Correct"]) & merged["YourAnswer"].notna()
-merged["Unattempted"] = merged["YourAnswer"].isna()
+# -----------------------------
+# File Upload Section
+# -----------------------------
+st.subheader("📂 Upload Files")
 
-merged["Marks"] = merged["Correct"] * 1 + merged["Wrong"] * (-1/3)
+st.write("Please upload your **Answer Key** and **Response Sheet** in CSV or Excel format.")
 
-# Total score
-total_marks = merged["Marks"].sum()
-correct_count = merged["Correct"].sum()
-wrong_count = merged["Wrong"].sum()
-unattempted_count = merged["Unattempted"].sum()
+key_file = st.file_uploader("📘 Upload Answer Key", type=["csv", "xlsx"])
+resp_file = st.file_uploader("🧾 Upload Response Sheet", type=["csv", "xlsx"])
 
-st.subheader("📋 Your Result Summary")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("✅ Correct", int(correct_count))
-col2.metric("❌ Wrong", int(wrong_count))
-col3.metric("⭕ Unattempted", int(unattempted_count))
-col4.metric("🏁 Total Marks", f"{total_marks:.2f}/100")
+# -----------------------------
+# Process Logic
+# -----------------------------
+if st.button("🔍 Calculate Marks"):
 
-# ----- Section-wise -----
-merged["Section"] = pd.cut(merged["QNo"],
-    bins=[0,20,40,60,80,100],
-    labels=["Mathematics","General Awareness","English","Odia","Reasoning"])
+    if key_file is not None and resp_file is not None:
+        try:
+            # Read uploaded files
+            if key_file.name.endswith('.csv'):
+                answer_key = pd.read_csv(key_file)
+            else:
+                answer_key = pd.read_excel(key_file)
 
-section_scores = merged.groupby("Section")["Marks"].sum().reset_index()
-st.subheader("📚 Section-wise Scores")
-st.dataframe(section_scores)
+            if resp_file.name.endswith('.csv'):
+                responses = pd.read_csv(resp_file)
+            else:
+                responses = pd.read_excel(resp_file)
 
-# ----- Simulated Rank (Random Peers) -----
-st.subheader("🏆 Rank Estimation (Demo)")
-num_students = 500
-peer_scores = np.random.normal(loc=55, scale=15, size=num_students)
-rank = 1 + np.sum(peer_scores > total_marks)
-percentile = (1 - rank / num_students) * 100
+            st.success("✅ Files uploaded successfully!")
 
-st.write(f"**Estimated Rank:** {rank} out of {num_students}")
-st.write(f"**Percentile:** {percentile:.2f}%")
+            # Merge answer key and responses by Question Number
+            merged = pd.merge(answer_key, responses, on="Qno", suffixes=('_key', '_resp'))
 
-st.info("In real mode, ranks would be computed from all uploaded responses.")
+            # Evaluate answers
+            merged["Result"] = np.where(
+                merged["Answer_key"] == merged["Answer_resp"], "Correct",
+                np.where(merged["Answer_resp"].isna(), "Unattempted", "Wrong")
+            )
+
+            # Calculate scores
+            correct = (merged["Result"] == "Correct").sum()
+            wrong = (merged["Result"] == "Wrong").sum()
+            unattempted = (merged["Result"] == "Unattempted").sum()
+            total_marks = correct * 1 - wrong * (1/3)
+
+            # Estimated rank (basic logic for demo)
+            if total_marks >= 85:
+                rank_est = "Top 1%"
+            elif total_marks >= 70:
+                rank_est = "Top 10%"
+            elif total_marks >= 50:
+                rank_est = "Average Range"
+            else:
+                rank_est = "Below Average"
+
+            # -----------------------------
+            # Display Result Section
+            # -----------------------------
+            st.markdown("---")
+            st.subheader("🏆 Result Summary")
+
+            st.write(f"**Name:** {name if name else 'N/A'}")
+            st.write(f"**Roll No.:** {roll_no if roll_no else 'N/A'}")
+            st.write(f"**Gender:** {gender}")
+            st.write(f"**Medium:** {medium}")
+
+            st.write("---")
+            st.write(f"✅ **Correct:** {correct}")
+            st.write(f"❌ **Wrong:** {wrong}")
+            st.write(f"⚪ **Unattempted:** {unattempted}")
+            st.write(f"🎯 **Total Marks:** `{total_marks:.2f} / 100`")
+            st.write(f"📈 **Estimated Rank Range:** {rank_est}")
+
+            # Download button
+            merged["Marks"] = np.where(
+                merged["Result"] == "Correct", 1,
+                np.where(merged["Result"] == "Wrong", -1/3, 0)
+            )
+            merged["Candidate_Name"] = name
+            merged["Roll_No"] = roll_no
+            merged["Gender"] = gender
+            merged["Medium"] = medium
+
+            st.download_button(
+                "📥 Download Detailed Result (CSV)",
+                merged.to_csv(index=False).encode('utf-8'),
+                "RI_Exam_Result.csv",
+                "text/csv"
+            )
+
+        except Exception as e:
+            st.error(f"⚠️ Error processing files: {e}")
+    else:
+        st.warning("⚠️ Please upload both files before clicking Calculate.")
+
+else:
+    st.info("👆 Fill in all details and upload both files, then click **Calculate Marks**.")
+
