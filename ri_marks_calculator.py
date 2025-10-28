@@ -58,7 +58,7 @@ if role == "🎓 Student":
 
     if st.button("🔍 Calculate My Marks"):
         if not response_link:
-            st.warning(⚠️ Please paste your response sheet link first.")
+            st.warning("⚠️ Please paste your response sheet link first.")
             st.stop()
 
         if not response_link.startswith("https://"):
