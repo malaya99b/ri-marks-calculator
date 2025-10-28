@@ -75,7 +75,7 @@ with tab1:
 
     if st.button("🔍 Calculate Marks"):
         if not response_link:
-            st.warning(⚠️ Please paste your response sheet link first.")
+            st.warning("⚠️ Please paste your response sheet link first.")
             st.stop()
 
         try:
