@@ -3,15 +3,15 @@ import pandas as pd
 import numpy as np
 
 # -----------------------------
-# Title and Intro
+# App Config
 # -----------------------------
 st.set_page_config(page_title="RI Marks & Rank Calculator", page_icon="📊", layout="centered")
 
 st.title("📊 RI Exam Marks & Rank Calculator")
-st.write("Welcome! Please fill in your details and upload your response sheet below to calculate your marks and estimated rank.")
+st.write("Upload your combined response sheet (with both correct answers and your responses) to calculate your score and estimated rank.")
 
 # -----------------------------
-# User Details Section
+# Candidate Details
 # -----------------------------
 st.subheader("🧾 Candidate Information")
 
@@ -29,98 +29,105 @@ st.markdown("---")
 # -----------------------------
 # File Upload Section
 # -----------------------------
-st.subheader("📂 Upload Files")
+st.subheader("📂 Upload Response Sheet")
 
-st.write("Please upload your **Answer Key** and **Response Sheet** in CSV or Excel format.")
+st.write("Please upload your combined response sheet file (CSV or Excel). It must include columns: **Qno, Correct_Answer, Response**.")
 
-key_file = st.file_uploader("📘 Upload Answer Key", type=["csv", "xlsx"])
-resp_file = st.file_uploader("🧾 Upload Response Sheet", type=["csv", "xlsx"])
+file = st.file_uploader("🧾 Upload Response Sheet", type=["csv", "xlsx"])
 
 # -----------------------------
 # Process Logic
 # -----------------------------
 if st.button("🔍 Calculate Marks"):
 
-    if key_file is not None and resp_file is not None:
+    if file is not None:
         try:
-            # Read uploaded files
-            if key_file.name.endswith('.csv'):
-                answer_key = pd.read_csv(key_file)
+            # Read uploaded file
+            if file.name.endswith('.csv'):
+                data = pd.read_csv(file)
             else:
-                answer_key = pd.read_excel(key_file)
+                data = pd.read_excel(file)
 
-            if resp_file.name.endswith('.csv'):
-                responses = pd.read_csv(resp_file)
+            required_columns = {"Qno", "Correct_Answer", "Response"}
+            if not required_columns.issubset(data.columns):
+                st.error("⚠️ The uploaded file must contain the columns: Qno, Correct_Answer, Response")
             else:
-                responses = pd.read_excel(resp_file)
+                # -----------------------------
+                # Evaluation
+                # -----------------------------
+                data["Result"] = np.where(
+                    data["Response"] == data["Correct_Answer"], "Correct",
+                    np.where(data["Response"].isna() | (data["Response"] == ""), "Unattempted", "Wrong")
+                )
 
-            st.success("✅ Files uploaded successfully!")
+                # Count results
+                correct = (data["Result"] == "Correct").sum()
+                wrong = (data["Result"] == "Wrong").sum()
+                unattempted = (data["Result"] == "Unattempted").sum()
 
-            # Merge answer key and responses by Question Number
-            merged = pd.merge(answer_key, responses, on="Qno", suffixes=('_key', '_resp'))
+                # Score
+                total_marks = correct * 1 - wrong * (1/3)
 
-            # Evaluate answers
-            merged["Result"] = np.where(
-                merged["Answer_key"] == merged["Answer_resp"], "Correct",
-                np.where(merged["Answer_resp"].isna(), "Unattempted", "Wrong")
-            )
+                # Rank estimation (example logic)
+                if total_marks >= 85:
+                    rank_est = "Top 1%"
+                elif total_marks >= 70:
+                    rank_est = "Top 10%"
+                elif total_marks >= 50:
+                    rank_est = "Average Range"
+                else:
+                    rank_est = "Below Average"
 
-            # Calculate scores
-            correct = (merged["Result"] == "Correct").sum()
-            wrong = (merged["Result"] == "Wrong").sum()
-            unattempted = (merged["Result"] == "Unattempted").sum()
-            total_marks = correct * 1 - wrong * (1/3)
+                # -----------------------------
+                # Result Display
+                # -----------------------------
+                st.markdown("---")
+                st.subheader("🏆 Result Summary")
 
-            # Estimated rank (basic logic for demo)
-            if total_marks >= 85:
-                rank_est = "Top 1%"
-            elif total_marks >= 70:
-                rank_est = "Top 10%"
-            elif total_marks >= 50:
-                rank_est = "Average Range"
-            else:
-                rank_est = "Below Average"
+                st.write(f"**Name:** {name if name else 'N/A'}")
+                st.write(f"**Roll No.:** {roll_no if roll_no else 'N/A'}")
+                st.write(f"**Gender:** {gender}")
+                st.write(f"**Medium:** {medium}")
 
-            # -----------------------------
-            # Display Result Section
-            # -----------------------------
-            st.markdown("---")
-            st.subheader("🏆 Result Summary")
+                st.write("---")
+                st.write(f"✅ **Correct:** {correct}")
+                st.write(f"❌ **Wrong:** {wrong}")
+                st.write(f"⚪ **Unattempted:** {unattempted}")
+                st.write(f"🎯 **Total Marks:** `{total_marks:.2f} / 100`")
+                st.write(f"📈 **Estimated Rank Range:** {rank_est}")
 
-            st.write(f"**Name:** {name if name else 'N/A'}")
-            st.write(f"**Roll No.:** {roll_no if roll_no else 'N/A'}")
-            st.write(f"**Gender:** {gender}")
-            st.write(f"**Medium:** {medium}")
+                # Section-wise performance (optional)
+                if "Section" in data.columns:
+                    st.write("---")
+                    st.subheader("📚 Section-wise Performance")
+                    section_summary = data.groupby("Section")["Result"].value_counts().unstack(fill_value=0)
+                    st.dataframe(section_summary)
 
-            st.write("---")
-            st.write(f"✅ **Correct:** {correct}")
-            st.write(f"❌ **Wrong:** {wrong}")
-            st.write(f"⚪ **Unattempted:** {unattempted}")
-            st.write(f"🎯 **Total Marks:** `{total_marks:.2f} / 100`")
-            st.write(f"📈 **Estimated Rank Range:** {rank_est}")
+                # -----------------------------
+                # Download Button
+                # -----------------------------
+                data["Marks"] = np.where(
+                    data["Result"] == "Correct", 1,
+                    np.where(data["Result"] == "Wrong", -1/3, 0)
+                )
+                data["Candidate_Name"] = name
+                data["Roll_No"] = roll_no
+                data["Gender"] = gender
+                data["Medium"] = medium
 
-            # Download button
-            merged["Marks"] = np.where(
-                merged["Result"] == "Correct", 1,
-                np.where(merged["Result"] == "Wrong", -1/3, 0)
-            )
-            merged["Candidate_Name"] = name
-            merged["Roll_No"] = roll_no
-            merged["Gender"] = gender
-            merged["Medium"] = medium
-
-            st.download_button(
-                "📥 Download Detailed Result (CSV)",
-                merged.to_csv(index=False).encode('utf-8'),
-                "RI_Exam_Result.csv",
-                "text/csv"
-            )
+                st.download_button(
+                    "📥 Download Detailed Result (CSV)",
+                    data.to_csv(index=False).encode('utf-8'),
+                    "RI_Exam_Result.csv",
+                    "text/csv"
+                )
 
         except Exception as e:
-            st.error(f"⚠️ Error processing files: {e}")
+            st.error(f"⚠️ Error processing file: {e}")
+
     else:
-        st.warning("⚠️ Please upload both files before clicking Calculate.")
+        st.warning("⚠️ Please upload your response sheet before clicking Calculate.")
 
 else:
-    st.info("👆 Fill in all details and upload both files, then click **Calculate Marks**.")
+    st.info("👆 Fill in your details and upload your response sheet, then click **Calculate Marks**.")
 
