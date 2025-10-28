@@ -40,7 +40,7 @@ with st.form("student_form"):
 # -------------------------------------------------------
 if submitted:
     if not uploaded_file:
-        st.warning(⚠️ Please upload your response sheet first.")
+        st.warning("⚠️ Please upload your response sheet first.")
         st.stop()
 
     total_q = 100
