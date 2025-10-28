@@ -2,14 +2,6 @@
 level = "error"
 messageFormat = ""
 
-[client]
-showErrorDetails = false
-
-[runner]
-magicEnabled = false
-
 [server]
-headless = true
-
-[telemetry]
-enabled = false
+enableCORS = false
+enableXsrfProtection = true

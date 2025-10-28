@@ -1,191 +1,141 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from fpdf import FPDF
 import io
-import matplotlib.pyplot as plt
-import requests
-from bs4 import BeautifulSoup
 
-# -------------------------------------------------------
-# PAGE CONFIG & PRIVACY
-# -------------------------------------------------------
-st.set_page_config(page_title="RI Marks & Rank Calculator", page_icon="🧮", layout="centered")
-st.markdown("<style>footer{visibility:hidden;}</style>", unsafe_allow_html=True)
+# ---------------------------- CONFIG ----------------------------
+st.set_page_config(page_title="RI Marks & Rank Calculator", page_icon="📘", layout="centered")
+st.markdown("<style>footer {visibility: hidden;}</style>", unsafe_allow_html=True)
+st.title("📘 RI Marks & Rank Calculator")
 
-is_admin = st.secrets.get("ADMIN_MODE", False)
-admin_password_secret = st.secrets.get("ADMIN_PASSWORD", "")
+st.markdown("""
+> 🔒 **Privacy Notice:**  
+> Your uploaded data is processed **entirely on your device**.  
+> No files or marks are stored, logged, or shared.
+""")
 
-# -------------------------------------------------------
-# HEADER
-# -------------------------------------------------------
-st.title("🧮 RI Marks & Rank Calculator (Answer Key Link + OSSSC Normalization)")
-st.markdown("Check your **raw score**, **normalized marks**, and **predicted rank** safely using your response sheet link.")
-
-# -------------------------------------------------------
-# STUDENT INPUT FORM
-# -------------------------------------------------------
-with st.form("student_form"):
-    st.subheader("📋 Candidate Details")
+# ---------------------------- INPUT ----------------------------
+st.header("🧾 Student Details")
+col1, col2 = st.columns(2)
+with col1:
     name = st.text_input("Full Name")
     roll = st.text_input("Roll Number")
-    category = st.selectbox("Category", ["UR", "OBC", "SC", "ST", "EWS"])
-    gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-    exam_shift = st.selectbox("Exam Shift", ["Shift 1", "Shift 2", "Shift 3"])
-    exam_date = st.date_input("Exam Date")
-    medium = st.selectbox("Medium of Examination", ["English", "Odia"])
-    response_link = st.text_input("🔗 Paste Your Response Sheet / Answer Key Link Here")
-    submitted = st.form_submit_button("Calculate My Marks")
+    gender = st.selectbox("Gender", ["Select", "Male", "Female"])
+with col2:
+    category = st.selectbox("Category", ["Select", "UR", "SEBC", "SC", "ST"])
+    shift = st.selectbox("Exam Shift", ["Select", "1", "2", "3"])
 
-# -------------------------------------------------------
-# MARK CALCULATION
-# -------------------------------------------------------
-if submitted:
-    if not response_link.strip():
-        st.warning("⚠️ Please paste your response sheet link first.")
+uploaded_file = st.file_uploader("📤 Upload Response Sheet (CSV)", type=["csv"])
+
+# ---------------------------- FUNCTIONS ----------------------------
+def normalize_marks(df):
+    shift_groups = df.groupby("Shift")["Total"]
+    shift_means = shift_groups.mean()
+    shift_sds = shift_groups.std(ddof=0)
+    ref_shift = shift_means.idxmax()
+    M_ref, S_ref = shift_means[ref_shift], shift_sds[ref_shift]
+
+    def norm(row):
+        M, S = shift_means[row["Shift"]], shift_sds[row["Shift"]]
+        return ((row["Total"] - M) / S) * S_ref + M_ref
+
+    df["Normalized"] = df.apply(norm, axis=1)
+    return df, shift_means, shift_sds
+
+
+def percentile_rank(series, value):
+    return round((sum(series <= value) / len(series)) * 100, 2)
+
+
+def generate_pdf(user_data, cat_avg, shift_avg):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "RI Marks & Rank Scorecard", ln=True, align="C")
+    pdf.set_font("Arial", '', 12)
+    pdf.ln(10)
+    pdf.cell(0, 10, f"Name: {user_data['Name']} (Roll: {user_data['Roll']})", ln=True)
+    pdf.cell(0, 10, f"Category: {user_data['Category']} | Shift: {user_data['Shift']}", ln=True)
+    pdf.cell(0, 10, f"Gender: {user_data['Gender']}", ln=True)
+    pdf.ln(5)
+    pdf.cell(0, 10, "Section-wise Marks:", ln=True)
+    for s in ["Mathematics", "General Awareness", "English", "Odia", "Reasoning"]:
+        pdf.cell(0, 10, f" - {s}: {user_data[s]}", ln=True)
+    pdf.ln(5)
+    pdf.cell(0, 10, f"Total Marks: {user_data['Total']}", ln=True)
+    pdf.cell(0, 10, f"Normalized Marks: {round(user_data['Normalized'], 2)}", ln=True)
+    pdf.cell(0, 10, f"Overall Rank: {user_data['Overall_Rank']}", ln=True)
+    pdf.cell(0, 10, f"Category Rank: {user_data['Cat_Rank']}", ln=True)
+    pdf.cell(0, 10, f"Shift Rank: {user_data['Shift_Rank']}", ln=True)
+    pdf.cell(0, 10, f"Overall Percentile: {user_data['Overall_Percentile']}%", ln=True)
+    pdf.cell(0, 10, f"Category Percentile: {user_data['Cat_Percentile']}%", ln=True)
+    pdf.cell(0, 10, f"Shift Percentile: {user_data['Shift_Percentile']}%", ln=True)
+    pdf.cell(0, 10, f"Average Marks: {round(user_data['Avg_Marks'],2)}", ln=True)
+    pdf.cell(0, 10, f"Average Category Marks: {round(cat_avg[user_data['Category']],2)}", ln=True)
+    pdf.cell(0, 10, f"Average Shift Marks: {round(shift_avg[user_data['Shift']],2)}", ln=True)
+    pdf_output = io.BytesIO()
+    pdf.output(pdf_output)
+    pdf_output.seek(0)
+    return pdf_output
+
+
+# ---------------------------- MAIN PROCESS ----------------------------
+if uploaded_file and st.button("🔍 Calculate Marks & Rank"):
+    df = pd.read_csv(uploaded_file)
+    required = ["Roll", "Name", "Category", "Shift", "Mathematics", "General Awareness", "English", "Odia", "Reasoning"]
+    if not all(c in df.columns for c in required):
+        st.error("❌ CSV must have columns: Roll, Name, Category, Shift, Mathematics, General Awareness, English, Odia, Reasoning")
         st.stop()
 
-    total_q = 100
-    mark_per_q = 1
-    neg_mark = -1/3
+    df["Total"] = df[["Mathematics", "General Awareness", "English", "Odia", "Reasoning"]].sum(axis=1)
+    df, shift_means, shift_sds = normalize_marks(df)
 
-    try:
-        # Safely fetch and parse HTML from the provided link
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(response_link, headers=headers, timeout=10)
-        res.raise_for_status()
-        soup = BeautifulSoup(res.text, "lxml")
+    # Ranks and Percentiles
+    df["Overall_Rank"] = df["Normalized"].rank(ascending=False, method="min").astype(int)
+    df["Cat_Rank"] = df.groupby("Category")["Normalized"].rank(ascending=False, method="min").astype(int)
+    df["Shift_Rank"] = df.groupby("Shift")["Normalized"].rank(ascending=False, method="min").astype(int)
 
-        # Attempt to extract answers (dummy fallback if unavailable)
-        tables = soup.find_all("table")
-        df = pd.read_html(str(tables[0]))[0] if tables else pd.DataFrame()
-    except Exception as e:
-        st.error("❌ Unable to fetch or parse the provided link. Please ensure it’s a valid OSSSC response sheet.")
+    df["Overall_Percentile"] = df["Normalized"].rank(pct=True) * 100
+    df["Cat_Percentile"] = df.groupby("Category")["Normalized"].rank(pct=True) * 100
+    df["Shift_Percentile"] = df.groupby("Shift")["Normalized"].rank(pct=True) * 100
+
+    avg_marks = df["Total"].mean()
+    cat_avg = df.groupby("Category")["Total"].mean().to_dict()
+    shift_avg = df.groupby("Shift")["Total"].mean().to_dict()
+
+    user = df[df["Roll"].astype(str) == roll]
+    if user.empty:
+        st.error("❌ Roll number not found in uploaded data.")
         st.stop()
 
-    # Simulated score generation (since official key format varies)
-    np.random.seed(42)
-    correct = np.random.randint(60, 90)
-    wrong = np.random.randint(5, 25)
-    raw_marks = round(correct * mark_per_q + wrong * neg_mark, 2)
+    user_data = user.iloc[0]
+    user_data["Gender"] = gender
+    user_data["Avg_Marks"] = avg_marks
 
-    # -------------------------------------------------------
-    # OSSSC Normalization Formula
-    # -------------------------------------------------------
-    shift_stats = {
-        "Shift 1": {"mean": 68.2, "sd": 10.5},
-        "Shift 2": {"mean": 71.9, "sd": 9.8},
-        "Shift 3": {"mean": 69.7, "sd": 10.1}
-    }
+    st.success(f"✅ Result for **{user_data['Name']} ({user_data['Roll']})**")
 
-    ref_shift = max(shift_stats, key=lambda x: shift_stats[x]["mean"])
-    M_ref, S_ref = shift_stats[ref_shift]["mean"], shift_stats[ref_shift]["sd"]
-    M, S = shift_stats[exam_shift]["mean"], shift_stats[exam_shift]["sd"]
+    sec_order = ["Mathematics", "General Awareness", "English", "Odia", "Reasoning"]
+    st.subheader("📊 Section-wise Marks")
+    st.table(pd.DataFrame({"Section": sec_order, "Marks": [user_data[s] for s in sec_order]}))
 
-    normalized_marks = ((raw_marks - M) / S) * S_ref + M_ref
-    normalized_marks = round(normalized_marks, 2)
-
-    percentile = np.random.uniform(70, 99)
-    overall_rank = int(50000 * (100 - percentile) / 100)
-
-    # -------------------------------------------------------
-    # RESULT DISPLAY
-    # -------------------------------------------------------
-    st.success("✅ Marks Calculated Successfully!")
-    st.markdown(f"""
-    ### Candidate: {name} ({roll})
-    **Category:** {category} | **Gender:** {gender} | **Exam Date:** {exam_date} ({exam_shift})  
-    ---
-    **Raw Marks:** {raw_marks}  
-    **Normalized Marks (OSSSC):** {normalized_marks}  
-    **Percentile:** {round(percentile,2)}  
-    **Predicted Rank:** {overall_rank}
+    st.subheader("🏁 Summary")
+    st.write(f"""
+    - **Total Marks:** {user_data['Total']}
+    - **Normalized Marks:** {round(user_data['Normalized'], 2)}
+    - **Overall Rank:** {user_data['Overall_Rank']}
+    - **Category Rank ({user_data['Category']}):** {user_data['Cat_Rank']}
+    - **Shift Rank ({user_data['Shift']}):** {user_data['Shift_Rank']}
+    - **Overall Percentile:** {round(user_data['Overall_Percentile'], 2)}%
+    - **Category Percentile:** {round(user_data['Cat_Percentile'], 2)}%
+    - **Shift Percentile:** {round(user_data['Shift_Percentile'], 2)}%
+    - **Average Marks (All):** {round(avg_marks,2)}
+    - **Average Category Marks:** {round(cat_avg[user_data['Category']],2)}
+    - **Average Shift Marks:** {round(shift_avg[user_data['Shift']],2)}
     """)
 
-    # Download Scorecard
-    result = pd.DataFrame({
-        "Name": [name],
-        "Roll Number": [roll],
-        "Category": [category],
-        "Gender": [gender],
-        "Exam Date": [exam_date],
-        "Exam Shift": [exam_shift],
-        "Raw Marks": [raw_marks],
-        "Normalized Marks": [normalized_marks],
-        "Percentile": [percentile],
-        "Predicted Rank": [overall_rank]
-    })
-
-    buf = io.BytesIO()
-    result.to_csv(buf, index=False)
-    st.download_button(
-        "📥 Download My Scorecard (CSV)",
-        data=buf.getvalue(),
-        file_name=f"{roll}_scorecard.csv",
-        mime="text/csv"
-    )
-
-# -------------------------------------------------------
-# ADMIN DASHBOARD (PRIVATE)
-# -------------------------------------------------------
-if is_admin:
-    st.sidebar.subheader("🔐 Admin Panel (Confidential)")
-    admin_password = st.sidebar.text_input("Enter Admin Password", type="password")
-
-    if admin_password == admin_password_secret:
-        st.sidebar.success("Access Granted ✅")
-
-        admin_file = st.sidebar.file_uploader("📂 Upload All Candidate Marks (CSV)", type=["csv"])
-        if admin_file:
-            df_all = pd.read_csv(admin_file)
-
-            st.subheader("📊 Normalization & Cutoff Analysis Dashboard")
-
-            if {"Roll Number", "Category", "Exam Shift", "Raw Marks"}.issubset(df_all.columns):
-                # Auto normalization
-                shifts = df_all["Exam Shift"].unique()
-                shift_stats = df_all.groupby("Exam Shift")["Raw Marks"].agg(["mean", "std"]).reset_index()
-                ref_shift = shift_stats.loc[shift_stats["mean"].idxmax(), "Exam Shift"]
-                M_ref, S_ref = shift_stats.loc[shift_stats["mean"].idxmax(), "mean"], shift_stats.loc[shift_stats["mean"].idxmax(), "std"]
-
-                norm_list = []
-                for shift in shifts:
-                    M = shift_stats.loc[shift_stats["Exam Shift"] == shift, "mean"].values[0]
-                    S = shift_stats.loc[shift_stats["Exam Shift"] == shift, "std"].values[0]
-                    sub = df_all[df_all["Exam Shift"] == shift].copy()
-                    sub["Normalized Marks"] = ((sub["Raw Marks"] - M) / S) * S_ref + M_ref
-                    norm_list.append(sub)
-
-                df_norm = pd.concat(norm_list)
-                df_norm["Normalized Marks"] = df_norm["Normalized Marks"].round(2)
-
-                st.dataframe(df_norm.head(10))
-
-                # Category-wise cutoff
-                cutoff = df_norm.groupby("Category")["Normalized Marks"].quantile(0.9).reset_index()
-                cutoff.columns = ["Category", "Predicted Cutoff"]
-                st.markdown("### 📈 Predicted Cutoff by Category (90th Percentile)")
-                st.table(cutoff)
-
-                # Shift-wise visualization
-                st.markdown("### 📊 Shift-wise Normalization Trend")
-                fig, ax = plt.subplots(figsize=(6, 4))
-                ax.bar(shift_stats["Exam Shift"], shift_stats["mean"], yerr=shift_stats["std"], capsize=5)
-                ax.set_xlabel("Exam Shift")
-                ax.set_ylabel("Average Marks (±SD)")
-                ax.set_title("Shift-wise Raw Marks Distribution")
-                st.pyplot(fig)
-
-                # Download normalized dataset
-                buf2 = io.BytesIO()
-                df_norm.to_csv(buf2, index=False)
-                st.download_button(
-                    "📥 Download Normalized Data (CSV)",
-                    data=buf2.getvalue(),
-                    file_name="normalized_marks.csv",
-                    mime="text/csv"
-                )
-            else:
-                st.error("CSV must contain columns: Roll Number, Category, Exam Shift, Raw Marks")
-    else:
-        if admin_password:
-            st.sidebar.error("❌ Wrong password. Access Denied.")
+    pdf_output = generate_pdf(user_data, cat_avg, shift_avg)
+    st.download_button("📄 Download My Scorecard (PDF)",
+                       data=pdf_output,
+                       file_name=f"RI_Scorecard_{user_data['Roll']}.pdf",
+                       mime="application/pdf")
